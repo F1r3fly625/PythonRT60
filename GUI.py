@@ -1,124 +1,107 @@
 import tkinter as tk
-from tkinter import ttk, filedialog
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import ttk
+from tkinter import filedialog as fd
 import matplotlib.pyplot as plt
-import numpy as np
-from pydub import AudioSegment
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import main  # Import the main processing code
+
 
 class AudioVisualizerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Audio Visualizer")
-        self.root.geometry("800x600")
+        self.audio_file = None
+        self.samplerate = None
+        self.data = None
+        self.time = None
 
-        # Initialize default values
-        self.filename = "16bit4chan.wav"  # Default file
-        self.samplerate, self.data, self.time = self.load_audio(self.filename)
-        self.graph_mode = "Waveform"  # Default graph
+        # State to track current frequency plot
+        self.current_frequency = "Low Frequency"
 
-        # Create GUI components
-        self.create_widgets()
+        # Create UI components
+        self.create_ui()
 
-        # Display initial graphs
-        self.update_graph()
+    def create_ui(self):
+        """Sets up the UI components."""
+        # Create file open button
+        open_button = ttk.Button(self.root, text="Open File", command=self.select_file)
+        open_button.pack(pady=10)
 
-    def load_audio(self, filename):
-        """Loads and processes an audio file."""
-        if filename.endswith(".mp3"):
-            wav_file = filename.replace(".mp3", ".wav")
-            AudioSegment.from_mp3(filename).export(wav_file, format="wav")
-            filename = wav_file
+        # Create frequency toggle button
+        self.toggle_button = ttk.Button(self.root, text="Show Mid Frequency", command=self.toggle_frequency)
+        self.toggle_button.pack(pady=10)
 
-        samplerate, data = main.wavfile.read(filename)
-        if len(data.shape) == 2:
-            left_channel = data[:, 0]
-            right_channel = data[:, 1]
-            data = (left_channel + right_channel) / 2
-        time = np.linspace(0., len(data) / samplerate, len(data), endpoint=False)
-        return samplerate, data, time
+        # Create matplotlib figure and canvas
+        self.figure, (self.ax_waveform, self.ax_frequency) = plt.subplots(2, 1, figsize=(8, 6))
+        self.figure.tight_layout(pad=4)
+        self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-    def create_widgets(self):
-        """Creates the GUI layout."""
-        # Graph display area
-        self.figure, self.ax = plt.subplots(figsize=(8, 4))
-        self.canvas = FigureCanvasTkAgg(self.figure, self.root)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    def select_file(self):
+        """Opens a file dialog to select an audio file."""
+        filetypes = (("Audio files", "*.wav *.mp3"), ("All files", "*.*"))
+        filename = fd.askopenfilename(title="Open a file", initialdir="/", filetypes=filetypes)
 
-        # Dropdown menu for graph selection
-        dropdown_frame = tk.Frame(self.root)
-        dropdown_frame.pack(side=tk.TOP, fill=tk.X)
+        if filename:  # If a file is selected
+            self.audio_file = filename
+            self.samplerate, self.data, self.time = main.process_file(filename)
+            self.update_plots()
 
-        graph_options = ["Waveform", "Low Frequency", "Mid Frequency", "High Frequency", "Combined Frequency"]
-        self.graph_selector = ttk.Combobox(dropdown_frame, values=graph_options, state="readonly")
-        self.graph_selector.set("Select Graph")
-        self.graph_selector.pack(side=tk.LEFT, padx=10, pady=10)
-        self.graph_selector.bind("<<ComboboxSelected>>", self.change_graph)
+    def toggle_frequency(self):
+        """Cycles through Low, Mid, High, and Combined Frequency plots."""
+        if self.current_frequency == "Low Frequency":
+            self.current_frequency = "Mid Frequency"
+            self.toggle_button.config(text="Show High Frequency")
+        elif self.current_frequency == "Mid Frequency":
+            self.current_frequency = "High Frequency"
+            self.toggle_button.config(text="Show Combined Frequency")
+        elif self.current_frequency == "High Frequency":
+            self.current_frequency = "Combined Frequency"
+            self.toggle_button.config(text="Show Low Frequency")
+        else:  # Combined Frequency
+            self.current_frequency = "Low Frequency"
+            self.toggle_button.config(text="Show Mid Frequency")
 
-        # Load file button
-        self.load_btn = ttk.Button(dropdown_frame, text="Load File", command=self.load_file)
-        self.load_btn.pack(side=tk.RIGHT, padx=10)
+        self.update_plots()
 
-    def change_graph(self, event):
-        """Handles dropdown selection to change graph."""
-        self.graph_mode = self.graph_selector.get()
-        self.update_graph()
+    def update_plots(self):
+        """Updates the waveform and frequency plots based on the current state."""
+        if not self.audio_file:
+            return  # Do nothing if no file is loaded
 
-    def load_file(self):
-        """Opens a file dialog and loads a new audio file."""
-        filetypes = [
-            ("WAV files", "*.wav"),
-            ("MP3 files", "*.mp3"),
-            ("All files", "*.*")
-        ]
-        filename = filedialog.askopenfilename(title="Open a File", initialdir="/", filetypes=filetypes)
-        if filename:
-            self.filename = filename
-            self.samplerate, self.data, self.time = self.load_audio(filename)
-            self.graph_mode = "Waveform"  # Reset to waveform view
-            self.update_graph()
+        # Clear axes
+        self.ax_waveform.clear()
+        self.ax_frequency.clear()
 
-    def filter_data(self, lowcut, highcut):
-        """Filters the audio data for the specified frequency range."""
-        return main.filter(self.data, lowcut, highcut, self.samplerate)
+        # Draw the waveform (always visible)
+        self.ax_waveform.plot(self.time, self.data, color="black")
+        self.ax_waveform.set_title("Waveform")
+        self.ax_waveform.set_xlabel("Time (s)")
+        self.ax_waveform.set_ylabel("Amplitude")
 
-    def update_graph(self):
-        """Updates the graph based on the selected mode."""
-        self.ax.clear()
+        # Draw the current frequency plot
+        freqs, spectrum = main.calculate_spectrum(self.data, self.samplerate)
 
-        if self.graph_mode == "Waveform":
-            self.ax.plot(self.time, self.data, label="Waveform", color="black")
-            self.ax.set_title("Waveform")
-            self.ax.set_xlabel("Time (s)")
-            self.ax.set_ylabel("Amplitude")
+        if self.current_frequency == "Low Frequency":
+            low_spectrum = main.filter(spectrum, 20, 250, self.samplerate)
+            self.ax_frequency.plot(freqs, low_spectrum, color="blue", label="Low Frequency")
+        elif self.current_frequency == "Mid Frequency":
+            mid_spectrum = main.filter(spectrum, 250, 2000, self.samplerate)
+            self.ax_frequency.plot(freqs, mid_spectrum, color="green", label="Mid Frequency")
+        elif self.current_frequency == "High Frequency":
+            high_spectrum = main.filter(spectrum, 2000, 20000, self.samplerate)
+            self.ax_frequency.plot(freqs, high_spectrum, color="red", label="High Frequency")
+        elif self.current_frequency == "Combined Frequency":
+            self.ax_frequency.plot(freqs, spectrum, color="purple", label="Combined Frequency")
 
-        elif self.graph_mode in ["Low Frequency", "Mid Frequency", "High Frequency", "Combined Frequency"]:
-            ranges = {
-                "Low Frequency": (20, 200, "blue"),
-                "Mid Frequency": (200, 2000, "green"),
-                "High Frequency": (2000, 20000, "red")
-            }
+        self.ax_frequency.set_title(f"{self.current_frequency}")
+        self.ax_frequency.set_xlabel("Frequency (Hz)")
+        self.ax_frequency.set_ylabel("Amplitude")
+        self.ax_frequency.legend()
 
-            if self.graph_mode == "Combined Frequency":
-                for mode, (lowcut, highcut, color) in ranges.items():
-                    filtered_data = self.filter_data(lowcut, highcut)
-                    spectrum = np.abs(np.fft.fft(filtered_data))[:len(filtered_data)//2]
-                    freqs = np.fft.fftfreq(len(filtered_data), d=1/self.samplerate)[:len(filtered_data)//2]
-                    self.ax.plot(freqs, spectrum, label=f"{mode}", color=color)
-                self.ax.set_title("Combined Frequency Spectrum")
-            else:
-                lowcut, highcut, color = ranges[self.graph_mode]
-                filtered_data = self.filter_data(lowcut, highcut)
-                spectrum = np.abs(np.fft.fft(filtered_data))[:len(filtered_data)//2]
-                freqs = np.fft.fftfreq(len(filtered_data), d=1/self.samplerate)[:len(filtered_data)//2]
-                self.ax.plot(freqs, spectrum, label=self.graph_mode, color=color)
-                self.ax.set_title(f"{self.graph_mode} Spectrum")
-
-            self.ax.set_xlabel("Frequency (Hz)")
-            self.ax.set_ylabel("Amplitude")
-
-        self.ax.legend()
+        # Redraw the canvas
         self.canvas.draw()
+
 
 if __name__ == "__main__":
     root = tk.Tk()

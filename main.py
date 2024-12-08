@@ -5,6 +5,7 @@
 from scipy.io import wavfile
 import scipy.io
 from scipy.signal import butter, filtfilt
+from pydub import AudioSegment
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -16,10 +17,12 @@ def filter(data, lowcut, highcut, fs, order=4):
     b, a = butter(order, [low, high], btype='bandpass')
     return filtfilt(b, a, data)
 
+#added the conversion
+AudioSegment.from_mp3("/input/file.mp3").export("/output/file.wav", format="wav")
 
 #Elijah : I used this to load and test audio files for debugging
 #I used the file 16bit4chan.wav
-filename_temp = "16bit2chan.wav"
+filename_temp = "16bit4chan.wav"
 samplerate , data = wavfile.read(filename_temp)
 
 #checks if the audio has 2 channels, if so it adds both channels
